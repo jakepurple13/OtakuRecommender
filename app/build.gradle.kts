@@ -71,4 +71,5 @@ dependencies {
     implementation(libs.roomRuntime)
     implementation(libs.roomKtx)
     ksp(libs.roomCompiler)
+    implementation(libs.material)
 }

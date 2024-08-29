@@ -1,6 +1,7 @@
 package com.programmersbox.otakurecommender
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,6 +29,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Save
@@ -58,7 +62,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,135 +75,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
+import androidx.compose.ui.util.fastAny
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.room.ColumnInfo
-import androidx.room.Entity
-import androidx.room.PrimaryKey
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.BlockThreshold
-import com.google.ai.client.generativeai.type.HarmCategory
-import com.google.ai.client.generativeai.type.SafetySetting
-import com.google.ai.client.generativeai.type.Schema
-import com.google.ai.client.generativeai.type.content
-import com.google.ai.client.generativeai.type.generationConfig
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-
-private val HARASSMENT_PARAM = SafetySetting(HarmCategory.HARASSMENT, BlockThreshold.NONE)
-private val HATE_SPEECH_PARAM = SafetySetting(HarmCategory.HATE_SPEECH, BlockThreshold.NONE)
-private val DANGEROUS_CONTENT_PARAM =
-    SafetySetting(HarmCategory.DANGEROUS_CONTENT, BlockThreshold.NONE)
-private val SEXUALLY_EXPLICIT_PARAM =
-    SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, BlockThreshold.NONE)
-private val SAFETY_SETTINGS =
-    listOf(HARASSMENT_PARAM, HATE_SPEECH_PARAM, DANGEROUS_CONTENT_PARAM, SEXUALLY_EXPLICIT_PARAM)
-
-class GeminiRecommendationViewModel : ViewModel() {
-
-    val generativeModel = GenerativeModel(
-        "gemini-1.5-flash",
-        // Retrieve API key as an environmental variable defined in a Build Configuration
-        // see https://github.com/google/secrets-gradle-plugin for further instructions
-        BuildConfig.apiKey,
-        generationConfig = generationConfig {
-            temperature = 1f
-            topK = 64
-            topP = 0.95f
-            maxOutputTokens = 8192
-            responseMimeType = "application/json"
-            responseSchema = Schema.obj(
-                "response",
-                "a response",
-                Schema.arr(
-                    "recommendations",
-                    "a list of recommendations",
-                    Schema.obj(
-                        "recommendation",
-                        "a single recommendation",
-                        Schema.str("title", "the title of the recommendation"),
-                        Schema.str("description", "a short description of the recommendation"),
-                        Schema.str("reason", "a short reason for the recommendation"),
-                        Schema.arr("genre", "a list of genres", Schema.str("genre", "a genre"))
-                    )
-                )
-            )
-        },
-        // safetySettings = Adjust safety settings
-        // See https://ai.google.dev/gemini-api/docs/safety-settings
-        safetySettings = SAFETY_SETTINGS,
-        systemInstruction = content { text("You are a human-like, minimalistic bot speaking to adults who really like anime, manga, and novels. They are asking about recommendations based on what they have currently read or watched or just random recommendations in general. When responding, make sure to include the title, a short summary without any spoilers, and a few genre tags for the recommendation. Try to recommend at least 3 per response.\nWhen responding, respond with json like the following:\n{\"response\":response,\"recommendations\":[{\"title\":title, \"description\":description, \"reason\": reason, genre:[genres]}]}") },
-    )
-
-    private val chat = generativeModel.startChat()
-
-    val messageList = mutableStateListOf<Message>()
-
-    var isLoading by mutableStateOf(false)
-
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-
-    fun send(input: String) {
-        viewModelScope.launch {
-            isLoading = true
-            runCatching {
-                messageList.add(Message.User(input))
-                chat.sendMessage(input)
-            }
-                .onSuccess {
-                    println(it.text)
-                    runCatching {
-                        messageList.add(
-                            Message.Gemini(
-                                json.decodeFromString(
-                                    it.text.orEmpty().trim()
-                                )
-                            )
-                        )
-                    }.onFailure {
-                        it.printStackTrace()
-                        messageList.add(Message.Error(it.localizedMessage.orEmpty()))
-                    }
-                }
-                .onFailure {
-                    it.printStackTrace()
-                    messageList.add(Message.Error(it.localizedMessage.orEmpty()))
-                }
-            isLoading = false
-        }
-    }
-}
-
-sealed class Message {
-    data class Gemini(val recommendationResponse: RecommendationResponse) : Message()
-    data class User(val text: String) : Message()
-    data class Error(val text: String) : Message()
-}
-
-@Serializable
-data class RecommendationResponse(
-    val response: String? = null,
-    val recommendations: List<Recommendation>,
-)
-
-@Entity("Recommendation")
-@Serializable
-data class Recommendation(
-    @PrimaryKey
-    @ColumnInfo("title")
-    val title: String,
-    @ColumnInfo("description")
-    val description: String,
-    @ColumnInfo("reason")
-    val reason: String,
-    @ColumnInfo("genre")
-    val genre: List<String>,
-)
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -212,6 +89,10 @@ fun GeminiRecommendationScreen(
     viewModel: GeminiRecommendationViewModel = viewModel { GeminiRecommendationViewModel() },
 ) {
     val dao = database.recommendationDao()
+    val savedRecommendations by dao
+        .getAllRecommendations()
+        .collectAsState(emptyList())
+
     val topBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
     val lazyState = rememberLazyListState()
@@ -221,10 +102,6 @@ fun GeminiRecommendationScreen(
 
     ModalNavigationDrawer(
         drawerContent = {
-            val recommendations by dao
-                .getAllRecommendations()
-                .collectAsState(emptyList())
-
             ModalDrawerSheet {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize()
@@ -236,7 +113,7 @@ fun GeminiRecommendationScreen(
                         )
                     }
 
-                    items(recommendations) {
+                    items(savedRecommendations) {
                         var showDialog by remember { mutableStateOf(false) }
                         if (showDialog) {
                             AlertDialog(
@@ -267,7 +144,7 @@ fun GeminiRecommendationScreen(
                             trailingContent = {
                                 IconButton(
                                     onClick = { showDialog = true }
-                                ) { Icon(Icons.Default.Save, null) }
+                                ) { Icon(Icons.Default.Delete, null) }
                             },
                             modifier = Modifier.animateItemPlacement()
                         )
@@ -307,9 +184,7 @@ fun GeminiRecommendationScreen(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.fillMaxWidth()
-                        ) {
-                            CircularProgressIndicator()
-                        }
+                        ) { CircularProgressIndicator() }
                     }
                 }
 
@@ -326,6 +201,7 @@ fun GeminiRecommendationScreen(
                         is Message.Gemini -> GeminiMessage(
                             message = it,
                             onSaveClick = { scope.launch { dao.insertRecommendation(it) } },
+                            savedRecommendations = savedRecommendations,
                             modifier = Modifier.animateItemPlacement()
                         )
 
@@ -358,10 +234,12 @@ private fun GeminiMessage(
     message: Message.Gemini,
     modifier: Modifier = Modifier,
     onSaveClick: (Recommendation) -> Unit,
+    savedRecommendations: List<Recommendation> = emptyList(),
 ) {
     ChatBubbleItem(
         chatMessage = message,
         onSaveClick = onSaveClick,
+        savedRecommendations = savedRecommendations,
         modifier = modifier
     )
 }
@@ -406,6 +284,7 @@ fun ChatBubbleItem(
     chatMessage: Message,
     modifier: Modifier = Modifier,
     onSaveClick: (Recommendation) -> Unit = {},
+    savedRecommendations: List<Recommendation> = emptyList(),
 ) {
     val backgroundColor = when (chatMessage) {
         is Message.Gemini -> MaterialTheme.colorScheme.primaryContainer
@@ -480,9 +359,23 @@ fun ChatBubbleItem(
                                             Recommendations(
                                                 recommendation = it,
                                                 trailingContent = {
-                                                    IconButton(
-                                                        onClick = { onSaveClick(it) }
-                                                    ) { Icon(Icons.Default.Save, null) }
+                                                    Crossfade(
+                                                        savedRecommendations.fastAny { s -> s.title == it.title },
+                                                        label = "",
+                                                        modifier = Modifier.size(40.dp)
+                                                    ) { target ->
+                                                        if (target) {
+                                                            Icon(
+                                                                Icons.Default.CheckCircleOutline,
+                                                                null,
+                                                                tint = Color.Green
+                                                            )
+                                                        } else {
+                                                            IconButton(
+                                                                onClick = { onSaveClick(it) }
+                                                            ) { Icon(Icons.Default.Save, null) }
+                                                        }
+                                                    }
                                                 }
                                             )
                                         }
