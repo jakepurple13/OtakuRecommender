@@ -1,5 +1,6 @@
 package com.programmersbox.otakurecommender
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
@@ -42,6 +43,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -52,12 +54,14 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -100,10 +104,16 @@ fun GeminiRecommendationScreen(
         lazyState.animateScrollToItem(0)
     }
 
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
+
     ModalNavigationDrawer(
+        drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
                 LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     item {
@@ -139,7 +149,7 @@ fun GeminiRecommendationScreen(
                                 }
                             )
                         }
-                        Recommendations(
+                        RecommendationItem(
                             recommendation = it,
                             trailingContent = {
                                 IconButton(
@@ -459,6 +469,63 @@ fun Recommendations(
                     containerColor = Color.Transparent
                 )
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun RecommendationItem(
+    recommendation: Recommendation,
+    modifier: Modifier = Modifier,
+    trailingContent: @Composable () -> Unit = {},
+) {
+    var showRecs by remember { mutableStateOf(false) }
+    OutlinedCard(
+        onClick = { showRecs = !showRecs },
+        modifier = modifier
+    ) {
+        AnimatedContent(showRecs, label = "") { target ->
+            if (target) {
+                SelectionContainer {
+                    ListItem(
+                        trailingContent = trailingContent,
+                        headlineContent = { Text(recommendation.title) },
+                        supportingContent = {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(recommendation.description)
+                                HorizontalDivider(
+                                    modifier = Modifier.fillMaxWidth(0.5f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text("Reason: " + recommendation.reason)
+                            }
+                        },
+                        overlineContent = {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                recommendation.genre.forEach {
+                                    Text(it)
+                                }
+                            }
+                        },
+                        colors = ListItemDefaults.colors(
+                            containerColor = Color.Transparent
+                        )
+                    )
+                }
+            } else {
+                ListItem(
+                    trailingContent = { Icon(Icons.Default.KeyboardArrowDown, null) },
+                    headlineContent = { Text(recommendation.title) },
+                    colors = ListItemDefaults.colors(
+                        containerColor = Color.Transparent
+                    )
+                )
+            }
         }
     }
 }
