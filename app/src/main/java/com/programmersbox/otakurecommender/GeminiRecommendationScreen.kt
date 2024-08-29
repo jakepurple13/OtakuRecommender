@@ -12,11 +12,11 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -181,7 +181,7 @@ data class Recommendation(
 
 @Serializable
 data class RecommendationResponse(
-    val response: String?,
+    val response: String? = null,
     val recommendations: List<Recommendation>,
 )
 
@@ -218,7 +218,6 @@ fun GeminiRecommendationScreen(
         modifier = Modifier
             .nestedScroll(topBarScrollBehavior.nestedScrollConnection)
             .imePadding()
-            .imeNestedScroll()
     ) { padding ->
         LazyColumn(
             state = lazyState,
@@ -237,28 +236,22 @@ fun GeminiRecommendationScreen(
                 }
             }
 
-            viewModel.messageList.reversed().forEach {
+            items(viewModel.messageList.reversed()) {
                 when (it) {
-                    is Message.Error -> item {
-                        ErrorMessage(
-                            message = it,
-                            modifier = Modifier.animateItemPlacement()
-                        )
-                    }
+                    is Message.Error -> ErrorMessage(
+                        message = it,
+                        modifier = Modifier.animateItemPlacement()
+                    )
 
-                    is Message.Gemini -> item {
-                        GeminiMessage(
-                            message = it,
-                            modifier = Modifier.animateItemPlacement()
-                        )
-                    }
+                    is Message.Gemini -> GeminiMessage(
+                        message = it,
+                        modifier = Modifier.animateItemPlacement()
+                    )
 
-                    is Message.User -> stickyHeader {
-                        UserMessage(
-                            message = it,
-                            modifier = Modifier.animateItemPlacement()
-                        )
-                    }
+                    is Message.User -> UserMessage(
+                        message = it,
+                        modifier = Modifier.animateItemPlacement()
+                    )
                 }
             }
         }
