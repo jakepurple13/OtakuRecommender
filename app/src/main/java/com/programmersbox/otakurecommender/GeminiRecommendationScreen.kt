@@ -236,7 +236,10 @@ fun GeminiRecommendationScreen(
                 }
             }
 
-            items(viewModel.messageList.reversed()) {
+            items(
+                viewModel.messageList.reversed(),
+                contentType = { it }
+            ) {
                 when (it) {
                     is Message.Error -> ErrorMessage(
                         message = it,
