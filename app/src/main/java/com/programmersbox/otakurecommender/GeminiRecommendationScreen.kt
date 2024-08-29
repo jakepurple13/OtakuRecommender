@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -28,8 +29,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBarDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,13 +46,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +74,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.BlockThreshold
 import com.google.ai.client.generativeai.type.HarmCategory
@@ -170,27 +183,35 @@ sealed class Message {
 }
 
 @Serializable
-data class Recommendation(
-    val title: String,
-    val description: String,
-    val reason: String,
-    val genre: List<String>,
-)
-
-@Serializable
 data class RecommendationResponse(
     val response: String? = null,
     val recommendations: List<Recommendation>,
 )
 
+@Entity("Recommendation")
+@Serializable
+data class Recommendation(
+    @PrimaryKey
+    @ColumnInfo("title")
+    val title: String,
+    @ColumnInfo("description")
+    val description: String,
+    @ColumnInfo("reason")
+    val reason: String,
+    @ColumnInfo("genre")
+    val genre: List<String>,
+)
+
 @OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalFoundationApi::class, ExperimentalLayoutApi::class
+    ExperimentalFoundationApi::class
 )
 @Composable
 fun GeminiRecommendationScreen(
-    viewModel: GeminiRecommendationViewModel = androidx.lifecycle.viewmodel.compose.viewModel { GeminiRecommendationViewModel() },
+    database: RecommendationDatabase,
+    viewModel: GeminiRecommendationViewModel = viewModel { GeminiRecommendationViewModel() },
 ) {
+    val dao = database.recommendationDao()
     val topBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
     val lazyState = rememberLazyListState()
@@ -198,75 +219,135 @@ fun GeminiRecommendationScreen(
         lazyState.animateScrollToItem(0)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("OtakuBot: Powered by Gemini") },
-                scrollBehavior = topBarScrollBehavior
-            )
-        },
-        bottomBar = {
-            MessageInput(
-                onSendMessage = { viewModel.send(it) },
-                resetScroll = { scope.launch { lazyState.animateScrollToItem(0) } },
-                modifier = Modifier
-                    .background(BottomAppBarDefaults.containerColor)
-                    .navigationBarsPadding()
-            )
-        },
-        modifier = Modifier
-            .nestedScroll(topBarScrollBehavior.nestedScrollConnection)
-            .imePadding()
-    ) { padding ->
-        LazyColumn(
-            state = lazyState,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = padding,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            if (viewModel.isLoading) {
-                item {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        CircularProgressIndicator()
+    ModalNavigationDrawer(
+        drawerContent = {
+            val recommendations by dao
+                .getAllRecommendations()
+                .collectAsState(emptyList())
+
+            ModalDrawerSheet {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    item {
+                        TopAppBar(
+                            title = { Text("Saved Recommendations") },
+                            windowInsets = WindowInsets(0.dp),
+                        )
+                    }
+
+                    items(recommendations) {
+                        var showDialog by remember { mutableStateOf(false) }
+                        if (showDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showDialog = false },
+                                icon = { Icon(Icons.Default.Warning, null) },
+                                title = { Text("Delete Recommendation") },
+                                text = { Text("Are you sure you want to delete ${it.title}?") },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            scope.launch { dao.deleteRecommendation(it.title) }
+                                            showDialog = false
+                                        },
+                                        colors = ButtonDefaults.textButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error
+                                        )
+                                    ) { Text("Yes") }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = { showDialog = false }
+                                    ) { Text("No") }
+                                }
+                            )
+                        }
+                        Recommendations(
+                            recommendation = it,
+                            trailingContent = {
+                                IconButton(
+                                    onClick = { showDialog = true }
+                                ) { Icon(Icons.Default.Save, null) }
+                            },
+                            modifier = Modifier.animateItemPlacement()
+                        )
                     }
                 }
             }
-
-            items(
-                viewModel.messageList.reversed(),
-                contentType = { it }
+        },
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("OtakuBot: Powered by Gemini") },
+                    scrollBehavior = topBarScrollBehavior
+                )
+            },
+            bottomBar = {
+                MessageInput(
+                    onSendMessage = { viewModel.send(it) },
+                    resetScroll = { scope.launch { lazyState.animateScrollToItem(0) } },
+                    modifier = Modifier
+                        .background(BottomAppBarDefaults.containerColor)
+                        .navigationBarsPadding()
+                )
+            },
+            modifier = Modifier
+                .nestedScroll(topBarScrollBehavior.nestedScrollConnection)
+                .imePadding()
+        ) { padding ->
+            LazyColumn(
+                state = lazyState,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = padding,
+                modifier = Modifier.fillMaxSize()
             ) {
-                when (it) {
-                    is Message.Error -> ErrorMessage(
-                        message = it,
-                        modifier = Modifier.animateItemPlacement()
-                    )
+                if (viewModel.isLoading) {
+                    item {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
 
-                    is Message.Gemini -> GeminiMessage(
-                        message = it,
-                        modifier = Modifier.animateItemPlacement()
-                    )
+                items(
+                    viewModel.messageList.reversed(),
+                    contentType = { it }
+                ) {
+                    when (it) {
+                        is Message.Error -> ErrorMessage(
+                            message = it,
+                            modifier = Modifier.animateItemPlacement()
+                        )
 
-                    is Message.User -> UserMessage(
-                        message = it,
+                        is Message.Gemini -> GeminiMessage(
+                            message = it,
+                            onSaveClick = { scope.launch { dao.insertRecommendation(it) } },
+                            modifier = Modifier.animateItemPlacement()
+                        )
+
+                        is Message.User -> UserMessage(
+                            message = it,
+                            modifier = Modifier.animateItemPlacement()
+                        )
+                    }
+                }
+
+                item {
+                    GeminiMessage(
+                        message = Message.Gemini(
+                            RecommendationResponse(
+                                response = "Hi! Ask me for anime, manga, or novel recommendations and I will give them!",
+                                recommendations = emptyList()
+                            )
+                        ),
+                        onSaveClick = {},
                         modifier = Modifier.animateItemPlacement()
                     )
                 }
-            }
-
-            item {
-                GeminiMessage(
-                    message = Message.Gemini(
-                        RecommendationResponse(
-                            response = "Hi! Ask me for anime, manga, or novel recommendations and I will give them!",
-                            recommendations = emptyList()
-                        )
-                    ),
-                    modifier = Modifier.animateItemPlacement()
-                )
             }
         }
     }
@@ -276,9 +357,11 @@ fun GeminiRecommendationScreen(
 private fun GeminiMessage(
     message: Message.Gemini,
     modifier: Modifier = Modifier,
+    onSaveClick: (Recommendation) -> Unit,
 ) {
     ChatBubbleItem(
         chatMessage = message,
+        onSaveClick = onSaveClick,
         modifier = modifier
     )
 }
@@ -322,6 +405,7 @@ private fun ErrorMessage(
 fun ChatBubbleItem(
     chatMessage: Message,
     modifier: Modifier = Modifier,
+    onSaveClick: (Recommendation) -> Unit = {},
 ) {
     val backgroundColor = when (chatMessage) {
         is Message.Gemini -> MaterialTheme.colorScheme.primaryContainer
@@ -392,7 +476,16 @@ fun ChatBubbleItem(
                                             modifier = Modifier.clickable { showRecs = !showRecs }
                                         )
 
-                                        Recommendations(chatMessage.recommendationResponse.recommendations)
+                                        chatMessage.recommendationResponse.recommendations.forEach {
+                                            Recommendations(
+                                                recommendation = it,
+                                                trailingContent = {
+                                                    IconButton(
+                                                        onClick = { onSaveClick(it) }
+                                                    ) { Icon(Icons.Default.Save, null) }
+                                                }
+                                            )
+                                        }
                                     }
                                 } else {
                                     ListItem(
@@ -436,32 +529,35 @@ fun ChatBubbleItem(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Recommendations(
-    recommendations: List<Recommendation>,
+    recommendation: Recommendation,
+    modifier: Modifier = Modifier,
+    trailingContent: @Composable () -> Unit = {},
 ) {
-    recommendations.forEach {
+    Column(modifier = modifier) {
         HorizontalDivider(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         SelectionContainer {
             ListItem(
-                headlineContent = { Text(it.title) },
+                trailingContent = trailingContent,
+                headlineContent = { Text(recommendation.title) },
                 supportingContent = {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(it.description)
+                        Text(recommendation.description)
                         HorizontalDivider(
                             modifier = Modifier.fillMaxWidth(0.5f),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Text("Reason: " + it.reason)
+                        Text("Reason: " + recommendation.reason)
                     }
                 },
                 overlineContent = {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        it.genre.forEach {
+                        recommendation.genre.forEach {
                             Text(it)
                         }
                     }

@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import com.programmersbox.otakurecommender.ui.theme.OtakuRecommenderTheme
 
 class MainActivity : ComponentActivity() {
+    private val database by lazy { RecommendationDatabase.getInstance(this) }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -21,7 +22,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    GeminiRecommendationScreen()
+                    GeminiRecommendationScreen(database)
                 }
             }
         }
